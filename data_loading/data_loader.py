@@ -40,6 +40,10 @@ class Dataset:
         self._test_images = \
             self._load_multipage_tiff(os.path.join(self._data_dir, 'test-volume.tif'))
 
+        #images = self._load_folder(os.path.join(self._data_dir, 'train-volume'))
+        #masks = self._load_folder(os.path.join(self._data_dir, 'train-labels'))
+        #self._test_images = self._load_folder(os.path.join(self._data_dir, 'test-volume'))
+
         train_indices, val_indices = self._get_val_train_indices(len(images), fold)
         self._train_images = images[train_indices]
         self._train_masks = masks[train_indices]
