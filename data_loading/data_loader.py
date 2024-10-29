@@ -25,7 +25,7 @@ from PIL import Image, ImageSequence
 class Dataset:
     """Load, separate and prepare the data for training and prediction"""
 
-    def __init__(self, data_dir, batch_size, fold, augment=False, gpu_id=0, num_gpus=1, seed=0, amp=False):
+    def __init__(self, data_dir, batch_size, fold, augment=False, seed=0, amp=False):
         if not os.path.exists(data_dir):
             raise FileNotFoundError('Cannot find data dir: {}'.format(data_dir))
         self._data_dir = data_dir
@@ -49,9 +49,6 @@ class Dataset:
         self._train_masks = masks[train_indices]
         self._val_images = images[val_indices]
         self._val_masks = masks[val_indices]
-
-        self._num_gpus = num_gpus
-        self._gpu_id = gpu_id
 
     @property
     def train_size(self):
@@ -178,11 +175,10 @@ class Dataset:
         """Input function for training"""
         dataset = tf.data.Dataset.from_tensor_slices(
             (self._train_images, self._train_masks))
-        dataset = dataset.shard(self._num_gpus, self._gpu_id)
         dataset = dataset.repeat()
         dataset = dataset.shuffle(self._batch_size * 3)
         dataset = dataset.map(self._preproc_samples,
-                              num_parallel_calls=multiprocessing.cpu_count()//self._num_gpus)
+                              num_parallel_calls=multiprocessing.cpu_count())
         dataset = dataset.batch(self._batch_size, drop_remainder=drop_remainder)
         dataset = dataset.prefetch(self._batch_size)
 

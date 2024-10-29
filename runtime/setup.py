@@ -17,7 +17,6 @@ import multiprocessing
 
 import numpy as np
 import tensorflow as tf
-import horovod.tensorflow as hvd
 
 import dllogger as logger
 from dllogger import StdOutBackend, Verbosity, JSONStreamBackend
@@ -25,7 +24,6 @@ from dllogger import StdOutBackend, Verbosity, JSONStreamBackend
 
 def set_flags(params):
     os.environ['CUDA_CACHE_DISABLE'] = '1'
-    os.environ['HOROVOD_GPU_ALLREDUCE'] = 'NCCL'
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
     os.environ['TF_USE_CUDNN_BATCHNORM_SPATIAL_PERSISTENT'] = '0'
@@ -45,12 +43,10 @@ def set_flags(params):
     gpus = tf.config.experimental.list_physical_devices('GPU')
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
-    if gpus:
-        tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
 
     tf.config.optimizer.set_experimental_options({'remapping': False})
     tf.config.threading.set_intra_op_parallelism_threads(1)
-    tf.config.threading.set_inter_op_parallelism_threads(max(2, (multiprocessing.cpu_count() // hvd.size()) - 2))
+    tf.config.threading.set_inter_op_parallelism_threads(max(2, (multiprocessing.cpu_count()) - 2))
 
     if params.use_amp:
         tf.keras.mixed_precision.experimental.set_policy('mixed_float16')
@@ -58,7 +54,7 @@ def set_flags(params):
 
 def prepare_model_dir(params):
     # model_dir = os.path.join(params.model_dir, "model_checkpoint")
-    model_dir = params.model_dir if (hvd.rank() == 0 and not params.benchmark) else None
+    model_dir = params.model_dir
     if model_dir is not None:
         os.makedirs(model_dir, exist_ok=True)
         if ('train' in params.exec_mode) and (not params.resume_training):
@@ -69,10 +65,9 @@ def prepare_model_dir(params):
 
 def get_logger(params):
     backends = []
-    if hvd.rank() == 0:
-        backends += [StdOutBackend(Verbosity.VERBOSE)]
-        if params.log_dir:
-            backends += [JSONStreamBackend(Verbosity.VERBOSE, params.log_dir)]
+    backends += [StdOutBackend(Verbosity.VERBOSE)]
+    if params.log_dir:
+        backends += [JSONStreamBackend(Verbosity.VERBOSE, params.log_dir)]
     logger.init(backends=backends)
     logger.metadata("eval_dice_score", {"unit": None})
     logger.metadata("throughput_test", {"unit": "images/s"})

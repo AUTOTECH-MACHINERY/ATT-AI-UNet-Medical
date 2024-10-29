@@ -16,7 +16,6 @@ from time import time
 
 import numpy as np
 from PIL import Image
-import horovod.tensorflow as hvd
 import tensorflow as tf
 
 from runtime.losses import partial_losses
@@ -27,7 +26,7 @@ from model.tf_trt import export_model, TFTRTModel
 def train(params, model, dataset, logger):
     np.random.seed(params.seed)
     tf.random.set_seed(params.seed)
-    max_steps = params.max_steps // hvd.size()
+    max_steps = params.max_steps
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=params.learning_rate)
     if params.use_amp:
@@ -40,7 +39,7 @@ def train(params, model, dataset, logger):
         checkpoint.restore(tf.train.latest_checkpoint(params.model_dir))
 
     @tf.function
-    def train_step(features, labels, warmup_batch=False):
+    def train_step(features, labels):
         with tf.GradientTape() as tape:
             output_map = model(features)
             crossentropy_loss, dice_loss = partial_losses(output_map, labels)
@@ -51,62 +50,52 @@ def train(params, model, dataset, logger):
 
             if params.use_amp:
                 loss = optimizer.get_scaled_loss(loss)
-        #tape = hvd.DistributedGradientTape(tape)
         gradients = tape.gradient(loss, model.trainable_variables)
         if params.use_amp:
             gradients = optimizer.get_unscaled_gradients(gradients)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
-        # Note: broadcast should be done after the first gradient step to ensure optimizer
-        # initialization.
-        if warmup_batch:
-            hvd.broadcast_variables(model.variables, root_rank=0)
-            hvd.broadcast_variables(optimizer.variables, root_rank=0)
 
         ce_loss(crossentropy_loss)
         f1_loss(dice_loss)
         return loss
 
     if params.benchmark:
-        assert max_steps * hvd.size() > params.warmup_steps, \
+        assert max_steps > params.warmup_steps, \
             "max_steps value has to be greater than warmup_steps"
         timestamps = []
         for iteration, (images, labels) in enumerate(dataset.train_fn(drop_remainder=True)):
-            loss = train_step(images, labels, warmup_batch=iteration == 0).numpy()
+            loss = train_step(images, labels).numpy()
             if iteration > params.warmup_steps:
                 timestamps.append(time())
-            if iteration >= max_steps * hvd.size():
+            if iteration >= max_steps :
                 break
 
-        if hvd.rank() == 0:
-            deltas = np.array([timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)])
-            stats = process_performance_stats(deltas, hvd.size() * params.batch_size, mode="train")
-            logger.log(step=(), data=stats)
+        deltas = np.array([timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)])
+        stats = process_performance_stats(deltas, params.batch_size, mode="train")
+        logger.log(step=(), data=stats)
     else:
         for iteration, (images, labels) in enumerate(dataset.train_fn()):
-            train_step(images, labels, warmup_batch=iteration == 0)
-            if hvd.rank() == 0:
-                if iteration % params.log_every == 0:
-                    logger.log(step=(iteration, max_steps),
-                               data={"train_ce_loss": float(ce_loss.result()),
-                                     "train_dice_loss": float(f1_loss.result()),
-                                     "train_total_loss": float(f1_loss.result() + ce_loss.result())})
+            train_step(images, labels)
+            if iteration % params.log_every == 0:
+                logger.log(step=(iteration, max_steps),
+                            data={"train_ce_loss": float(ce_loss.result()),
+                                    "train_dice_loss": float(f1_loss.result()),
+                                    "train_total_loss": float(f1_loss.result() + ce_loss.result())})
 
-                if (params.evaluate_every > 0) and (iteration % params.evaluate_every == 0):
-                    evaluate(params, model, dataset, logger, restore_checkpoint=False)
+            if (params.evaluate_every > 0) and (iteration % params.evaluate_every == 0):
+                evaluate(params, model, dataset, logger, restore_checkpoint=False)
 
-                f1_loss.reset_states()
-                ce_loss.reset_states()
+            f1_loss.reset_states()
+            ce_loss.reset_states()
 
             if iteration >= max_steps:
                 break
-        if hvd.rank() == 0:
-            checkpoint.save(file_prefix=os.path.join(params.model_dir, "checkpoint"))
-            if params.use_savedmodel:
-                prec = 'amp' if params.use_amp else 'fp32'
-                model.save(os.path.join(params.model_dir, f'saved_model_{prec}'))
-                if params.use_tftrt:
-                    export_model(params.model_dir, prec, os.path.join(params.model_dir, f'tf-trt_model_{prec}'))
+        checkpoint.save(file_prefix=os.path.join(params.model_dir, "checkpoint"))
+        if params.use_savedmodel:
+            prec = 'amp' if params.use_amp else 'fp32'
+            model.save(os.path.join(params.model_dir, f'saved_model_{prec}'))
+            if params.use_tftrt:
+                export_model(params.model_dir, prec, os.path.join(params.model_dir, f'tf-trt_model_{prec}'))
 
     logger.flush()
 

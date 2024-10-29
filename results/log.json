@@ -1,0 +1,3 @@
+DLLL {"timestamp": "1730201471.883919", "elapsedtime": "8e-06", "datetime": "2024-10-29 11:31:11.883919", "type": "METADATA", "metric": "eval_dice_score", "metadata": {"unit": null}}
+DLLL {"timestamp": "1730201471.884115", "elapsedtime": "0.000204", "datetime": "2024-10-29 11:31:11.884115", "type": "METADATA", "metric": "throughput_test", "metadata": {"unit": "images/s"}}
+DLLL {"timestamp": "1730201471.884143", "elapsedtime": "0.000232", "datetime": "2024-10-29 11:31:11.884143", "type": "METADATA", "metric": "throughput_train", "metadata": {"unit": "images/s"}}

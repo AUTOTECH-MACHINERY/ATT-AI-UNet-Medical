@@ -23,8 +23,6 @@ Example:
 
 """
 
-import horovod.tensorflow as hvd
-
 from model.unet import Unet
 from runtime.run import train, evaluate, predict
 from runtime.setup import get_logger, set_flags, prepare_model_dir
@@ -36,7 +34,6 @@ def main():
     """
     Starting point of the application
     """
-    hvd.init()
     params = parse_args(PARSER.parse_args())
     set_flags(params)
     model_dir = prepare_model_dir(params)
@@ -49,8 +46,6 @@ def main():
                       batch_size=params.batch_size,
                       fold=params.fold,
                       augment=params.augment,
-                      gpu_id=hvd.rank(),
-                      num_gpus=hvd.size(),
                       seed=params.seed,
                       amp=params.use_amp)
 
@@ -58,12 +53,10 @@ def main():
         train(params, model, dataset, logger)
 
     if 'evaluate' in params.exec_mode:
-        if hvd.rank() == 0:
-            evaluate(params, model, dataset, logger)
+        evaluate(params, model, dataset, logger)
 
     if 'predict' in params.exec_mode:
-        if hvd.rank() == 0:
-            predict(params, model, dataset, logger)
+        predict(params, model, dataset, logger)
 
 
 if __name__ == '__main__':
