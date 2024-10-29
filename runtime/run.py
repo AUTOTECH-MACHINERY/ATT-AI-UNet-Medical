@@ -85,8 +85,8 @@ def train(params, model, dataset, logger):
             if (params.evaluate_every > 0) and (iteration % params.evaluate_every == 0):
                 evaluate(params, model, dataset, logger, restore_checkpoint=False)
 
-            f1_loss.reset_states()
-            ce_loss.reset_states()
+            f1_loss.reset_state()
+            ce_loss.reset_state()
 
             if iteration >= max_steps:
                 break
